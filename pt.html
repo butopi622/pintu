@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <!-- 手机端适配：禁止缩放，禁止滚动 -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>拼图解密</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+            user-select: none;
+        }
+
+        body {
+            background-color: #FFF8E7; /* 浅黄色背景 */
+            color: #4a4a4a;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+            overflow: hidden;
+        }
+
+        h1 {
+            font-size: 24px;
+            margin: 0 0 25px 0;
+            color: #D35400;
+            letter-spacing: 1px;
+        }
+
+        /* 拼图棋盘 */
+        #game-board {
+            width: min(90vw, 400px);
+            height: min(90vw, 400px);
+            background-color: #f0e6d2;
+            position: relative;
+            border-radius: 12px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+            border: 3px solid #e0d4bc;
+            touch-action: none;
+            overflow: hidden;
+        }
+
+        /* 拼图块 */
+        .tile {
+            position: absolute;
+            width: 33.3333%;
+            height: 33.3333%;
+            background-image: url('puzzle.jpg'); /* 注意此处的图片名 */
+            background-size: 300% 300%;
+            transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+            will-change: transform;
+            border: 1px solid rgba(0,0,0,0.1);
+            box-shadow: inset 0 0 5px rgba(0,0,0,0.1);
+        }
+
+        #game-board.win .tile {
+            border: none;
+            box-shadow: none;
+        }
+
+        .tile.empty {
+            background-image: none;
+            background-color: transparent;
+            border: none;
+            box-shadow: none;
+        }
+
+        /* 按钮 */
+        .controls {
+            margin-top: 30px;
+            display: flex;
+            gap: 20px;
+        }
+
+        button {
+            padding: 12px 24px;
+            font-size: 16px;
+            background-color: #F39C12;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-weight: bold;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            transition: transform 0.1s, opacity 0.2s;
+            cursor: pointer;
+            outline: none;
+        }
+        button:active {
+            opacity: 0.8;
+            transform: scale(0.95);
+        }
+        #restart-btn {
+            background-color: #E74C3C;
+        }
+
+        /* 弹窗通用 */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(0,0,0,0.7);
+            z-index: 100;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            opacity: 0;
+            transition: opacity 0.4s ease;
+        }
+
+        .modal-overlay.show {
+            display: flex;
+            opacity: 1;
+        }
+
+        #preview-image {
+            width: min(90vw, 400px);
+            border-radius: 12px;
+        }
+
+        #clue-image {
+            max-width: 85vw;
+            max-height: 60vh;
+            border-radius: 12px;
+            border: 3px solid #f1c40f;
+            margin-bottom: 25px;
+            transform: scale(0.8);
+            transition: transform 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        .modal-overlay.show #clue-image {
+            transform: scale(1);
+        }
+
+        .win-text {
+            color: #f1c40f;
+            font-size: 22px;
+            font-weight: bold;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>拼图解密</h1>
+
+    <div id="game-board"></div>
+
+    <div class="controls">
+        <button id="preview-btn">按住看原图</button>
+        <button id="restart-btn">重新开始</button>
+    </div>
+
+    <!-- 预览原图 -->
+    <div id="preview-modal" class="modal-overlay">
+        <!-- 注意此处的图片名 -->
+        <img id="preview-image" src="puzzle.jpg" alt="原图">
+    </div>
+
+    <!-- 线索弹窗 -->
+    <div id="clue-modal" class="modal-overlay">
+        <div class="win-text">🎉 拼图成功！<br>这是给你的线索：</div>
+        <!-- 注意此处的图片名 -->
+        <img id="clue-image" src="clue.jpg" alt="最终线索">
+        <button id="close-clue-btn">我知道了</button>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const boardSize = 3;
+            const totalTiles = boardSize * boardSize;
+            const board = document.getElementById('game-board');
+            
+            let tiles = [];
+            let boardState = [];
+            let emptyIndex = 8;
+            let isGameWon = false;
+
+            // 初始化
+            function initGame() {
+                board.innerHTML = '';
+                board.classList.remove('win');
+                tiles = [];
+                boardState = [0, 1, 2, 3, 4, 5, 6, 7, 8];
+                emptyIndex = 8;
+                isGameWon = false;
+
+                for (let i = 0; i < totalTiles; i++) {
+                    const tile = document.createElement('div');
+                    tile.classList.add('tile');
+                    
+                    // 设置背景位置
+                    const x = (i % boardSize) * 50;
+                    const y = Math.floor(i / boardSize) * 50;
+                    tile.style.backgroundPosition = `${x}% ${y}%`;
+
+                    if (i === 8) tile.classList.add('empty');
+
+                    tile.addEventListener('click', () => handleTileClick(i));
+                    board.appendChild(tile);
+                    tiles.push(tile);
+                }
+
+                shuffleBoard();
+                updateBoardUI();
+            }
+
+            // 打乱拼图(60步，适中难度)
+            function shuffleBoard() {
+                for (let i = 0; i < 60; i++) {
+                    const emptyRow = Math.floor(emptyIndex / boardSize);
+                    const emptyCol = emptyIndex % boardSize;
+                    const neighbors = [];
+                    
+                    if (emptyRow > 0) neighbors.push(emptyIndex - boardSize);
+                    if (emptyRow < boardSize - 1) neighbors.push(emptyIndex + boardSize);
+                    if (emptyCol > 0) neighbors.push(emptyIndex - 1);
+                    if (emptyCol < boardSize - 1) neighbors.push(emptyIndex + 1);
+
+                    const randomNeighbor = neighbors[Math.floor(Math.random() * neighbors.length)];
+                    swapTiles(emptyIndex, randomNeighbor);
+                    emptyIndex = randomNeighbor;
+                }
+            }
+
+            function swapTiles(index1, index2) {
+                const temp = boardState[index1];
+                boardState[index1] = boardState[index2];
+                boardState[index2] = temp;
+            }
+
+            function handleTileClick(clickedIndex) {
+                if (isGameWon) return;
+                // 检查是否相邻(上、下、左、右)
+                const r1 = Math.floor(clickedIndex / boardSize), c1 = clickedIndex % boardSize;
+                const r2 = Math.floor(emptyIndex / boardSize), c2 = emptyIndex % boardSize;
+                
+                if (Math.abs(r1 - r2) + Math.abs(c1 - c2) === 1) {
+                    executeMove(clickedIndex);
+                }
+            }
+
+            function executeMove(clickedIndex) {
+                swapTiles(clickedIndex, emptyIndex);
+                emptyIndex = clickedIndex;
+                updateBoardUI();
+
+                if (checkWin()) {
+                    isGameWon = true;
+                    board.classList.add('win');
+                    setTimeout(() => {
+                        document.getElementById('clue-modal').classList.add('show');
+                        if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+                    }, 400);
+                }
+            }
+
+            function updateBoardUI() {
+                for (let i = 0; i < totalTiles; i++) {
+                    const tileIndex = boardState[i];
+                    const tile = tiles[tileIndex];
+                    
+                    const row = Math.floor(i / boardSize);
+                    const col = i % boardSize;
+                    
+                    tile.style.transform = `translate3d(${col * 100}%, ${row * 100}%, 0)`;
+
+                    if (tileIndex === 8) {
+                        tile.classList.add('empty');
+                    } else {
+                        tile.classList.remove('empty');
+                    }
+                }
+            }
+
+            function checkWin() {
+                for (let i = 0; i < totalTiles; i++) {
+                    if (boardState[i] !== i) return false;
+                }
+                return true;
+            }
+
+            // --- 手机滑动 ---
+            let touchStartX = 0, touchStartY = 0;
+
+            board.addEventListener('touchstart', (e) => {
+                if (isGameWon) return;
+                touchStartX = e.touches[0].clientX;
+                touchStartY = e.touches[0].clientY;
+            }, { passive: true });
+
+            board.addEventListener('touchend', (e) => {
+                if (isGameWon) return;
+                const dx = e.changedTouches[0].clientX - touchStartX;
+                const dy = e.changedTouches[0].clientY - touchStartY;
+                
+                if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 30) {
+                    handleSwipe(dx > 0 ? 'right' : 'left');
+                } else if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 30) {
+                    handleSwipe(dy > 0 ? 'down' : 'up');
+                }
+            }, { passive: true });
+
+            function handleSwipe(direction) {
+                const emptyRow = Math.floor(emptyIndex / boardSize);
+                const emptyCol = emptyIndex % boardSize;
+                let targetIndex = -1;
+
+                if (direction === 'right' && emptyCol > 0) targetIndex = emptyIndex - 1;
+                else if (direction === 'left' && emptyCol < boardSize - 1) targetIndex = emptyIndex + 1;
+                else if (direction === 'down' && emptyRow > 0) targetIndex = emptyIndex - boardSize;
+                else if (direction === 'up' && emptyRow < boardSize - 1) targetIndex = emptyIndex + boardSize;
+
+                if (targetIndex !== -1) executeMove(targetIndex);
+            }
+
+            // --- 预览原图 ---
+            const previewModal = document.getElementById('preview-modal');
+            
+            const startPreview = (e) => {
+                if (e.type === 'touchstart') e.preventDefault(); // 防止长按触发菜单
+                previewModal.classList.add('show');
+            };
+            const endPreview = () => previewModal.classList.remove('show');
+
+            const previewBtn = document.getElementById('preview-btn');
+            // 鼠标事件
+            previewBtn.addEventListener('mousedown', startPreview);
+            window.addEventListener('mouseup', endPreview);
+            // 触摸事件
+            previewBtn.addEventListener('touchstart', startPreview, { passive: false });
+            window.addEventListener('touchend', endPreview);
+
+            // 按钮事件
+            document.getElementById('restart-btn').addEventListener('click', initGame);
+            document.getElementById('close-clue-btn').addEventListener('click', () => {
+                document.getElementById('clue-modal').classList.remove('show');
+            });
+
+            // 启动
+            initGame();
+        });
+    </script>
+</body>
+</html>
